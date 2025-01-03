@@ -1,31 +1,32 @@
 #ifndef MNIST_HPP
 #define MNIST_HPP
 
-#include <string>
+#include <iostream>
+#include <vector>
+#include <fstream>
 #include "tensor.hpp"
 
-class MNISTLoader {
-public:
-    // Constructor
-    MNISTLoader(const std::string& images_path, const std::string& labels_path);
+#define MNIST_TRAIN_LEN 60000
+#define MNIST_TEST_LEN 10000
+#define MNIST_TRAIN_SHAPES MNIST_TRAIN_LEN, 1, 28, 28
+#define MNIST_TEST_SHAPES MNIST_TEST_LEN, 1, 28, 28
+#define IMAGE_DATA 784  // 28 x 28
 
-    // Load the dataset
-    void loadDataset();
+using namespace std;
 
-    // Get training data
-    Tensor getImages() const;
-    Tensor getLabels() const;
+int ReverseInt(int i);
+void normalize_set(Tensor& set, int len, int n_rows, int n_cols);
 
+class MNIST {
 private:
-    std::string imagesPath;
-    std::string labelsPath;
+    void get_set(string path, int num_images, Tensor& set);
+    void get_label(string path, int num_images, vector<int>& labels);
+    void init_mnist(Tensor& train_ds, vector<int>& train_labels,
+                    Tensor& test_ds, vector<int>& test_labels);
 
-    Tensor images; // Tensor to store the image data
-    Tensor labels; // Tensor to store the label data
-
-    // Helper methods
-    void loadImages();
-    void loadLabels();
+public:
+    void load_mnist(Tensor& train_ds, vector<int>& train_labels,
+                    Tensor& test_ds, vector<int>& test_labels);
 };
 
-#endif // MNIST_HPP
+#endif

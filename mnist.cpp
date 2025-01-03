@@ -1,87 +1,105 @@
 #include "mnist.hpp"
-#include <fstream>
-#include <stdexcept>
-#include <vector>
-#include <iostream>
 
-// Constructor
-MNISTLoader::MNISTLoader(const std::string& images_path, const std::string& labels_path)
-    : imagesPath(images_path), labelsPath(labels_path) {}
-
-// Load the dataset
-void MNISTLoader::loadDataset() {
-    loadImages();
-    loadLabels();
+int ReverseInt(int i) {
+    unsigned char ch1, ch2, ch3, ch4;
+    ch1 = i & 255;
+    ch2 = (i >> 8) & 255;
+    ch3 = (i >> 16) & 255;
+    ch4 = (i >> 24) & 255;
+    return ((int)ch1 << 24) + ((int)ch2 << 16) + ((int)ch3 << 8) + ch4;
 }
 
-// Load images from the IDX file
-void MNISTLoader::loadImages() {
-    std::ifstream file(imagesPath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open images file: " + imagesPath);
-    }
+void normalize_set(Tensor& set, int len, int n_rows, int n_cols) {
+    for (int img = 0; img < len; ++img) {
+        double max_val = 0, min_val = 255, val;
 
-    int32_t magic, num_images, rows, cols;
-    file.read(reinterpret_cast<char*>(&magic), 4);
-    file.read(reinterpret_cast<char*>(&num_images), 4);
-    file.read(reinterpret_cast<char*>(&rows), 4);
-    file.read(reinterpret_cast<char*>(&cols), 4);
+        for (int r = 0; r < n_rows; ++r) {
+            for (int c = 0; c < n_cols; ++c) {
+                int index[4] = {img, 0, r, c};
+                val = set.get_value(index, 4);
+                if (val > max_val) max_val = val;
+                if (val < min_val) min_val = val;
+            }
+        }
 
-    magic = __builtin_bswap32(magic);
-    num_images = __builtin_bswap32(num_images);
-    rows = __builtin_bswap32(rows);
-    cols = __builtin_bswap32(cols);
-
-    if (magic != 2051) {
-        throw std::runtime_error("Invalid magic number for images file");
-    }
-
-    images = Tensor({num_images, rows, cols});
-    for (int i = 0; i < num_images; ++i) {
-        for (int r = 0; r < rows; ++r) {
-            for (int c = 0; c < cols; ++c) {
-                unsigned char pixel = 0;
-                file.read(reinterpret_cast<char*>(&pixel), 1);
-                images.at(i, r, c) = static_cast<float>(pixel) / 255.0f; // Normalize
+        for (int r = 0; r < n_rows; ++r) {
+            for (int c = 0; c < n_cols; ++c) {
+                int index[4] = {img, 0, r, c};
+                val = set.get_value(index, 4);
+                val = (val - min_val) / (max_val - min_val);
+                set.assign(val, index, 4);
             }
         }
     }
-    file.close();
 }
 
-// Load labels from the IDX file
-void MNISTLoader::loadLabels() {
-    std::ifstream file(labelsPath, std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open labels file: " + labelsPath);
+void MNIST::get_set(string path, int num_images, Tensor& set) {
+    ifstream file(path, ios::binary);
+    if (file.is_open()) {
+        int magic_number = 0, num_rows = 0, num_cols = 0;
+        file.read((char*)&magic_number, sizeof(magic_number));
+        magic_number = ReverseInt(magic_number);
+        file.read((char*)&num_images, sizeof(num_images));
+        num_images = ReverseInt(num_images);
+        file.read((char*)&num_rows, sizeof(num_rows));
+        num_rows = ReverseInt(num_rows);
+        file.read((char*)&num_cols, sizeof(num_cols));
+        num_cols = ReverseInt(num_cols);
+
+        for (int i = 0; i < num_images; ++i) {
+            for (int r = 0; r < num_rows; ++r) {
+                for (int c = 0; c < num_cols; ++c) {
+                    unsigned char temp = 0;
+                    file.read((char*)&temp, sizeof(temp));
+                    int index[4] = {i, 0, r, c};
+                    set.assign((double)temp, index, 4);
+                }
+            }
+        }
+        file.close();
     }
-
-    int32_t magic, num_labels;
-    file.read(reinterpret_cast<char*>(&magic), 4);
-    file.read(reinterpret_cast<char*>(&num_labels), 4);
-
-    magic = __builtin_bswap32(magic);
-    num_labels = __builtin_bswap32(num_labels);
-
-    if (magic != 2049) {
-        throw std::runtime_error("Invalid magic number for labels file");
-    }
-
-    labels = Tensor({num_labels});
-    for (int i = 0; i < num_labels; ++i) {
-        unsigned char label = 0;
-        file.read(reinterpret_cast<char*>(&label), 1);
-        labels.at(i) = static_cast<float>(label);
-    }
-    file.close();
 }
 
-// Get images
-Tensor MNISTLoader::getImages() const {
-    return images;
+void MNIST::get_label(string path, int num_images, vector<int>& labels) {
+    ifstream file(path, ios::binary);
+    if (file.is_open()) {
+        int magic_number = 0;
+        file.read((char*)&magic_number, sizeof(magic_number));
+        magic_number = ReverseInt(magic_number);
+        file.read((char*)&num_images, sizeof(num_images));
+        num_images = ReverseInt(num_images);
+
+        for (int i = 0; i < num_images; ++i) {
+            unsigned char temp = 0;
+            file.read((char*)&temp, sizeof(temp));
+            labels[i] = (int)temp;
+        }
+        file.close();
+    }
 }
 
-// Get labels
-Tensor MNISTLoader::getLabels() const {
-    return labels;
+void MNIST::init_mnist(Tensor& train_ds, vector<int>& train_labels,
+                       Tensor& test_ds, vector<int>& test_labels) {
+    int train_shapes[4] = {MNIST_TRAIN_SHAPES};
+    int test_shapes[4] = {MNIST_TEST_SHAPES};
+
+    train_ds.init(train_shapes, 4);
+    test_ds.init(test_shapes, 4);
+    train_labels.assign(MNIST_TRAIN_LEN, 0);
+    test_labels.assign(MNIST_TEST_LEN, 0);
+}
+
+void MNIST::load_mnist(Tensor& train_ds, vector<int>& train_labels,
+                       Tensor& test_ds, vector<int>& test_labels) {
+    init_mnist(train_ds, train_labels, test_ds, test_labels);
+    cout << "Loading MNIST dataset..." << endl;
+
+    get_set("MNIST_data/train-images.idx3-ubyte", MNIST_TRAIN_LEN, train_ds);
+    get_label("MNIST_data/train-labels.idx1-ubyte", MNIST_TRAIN_LEN, train_labels);
+
+    get_set("MNIST_data/t10k-images.idx3-ubyte", MNIST_TEST_LEN, test_ds);
+    get_label("MNIST_data/t10k-labels.idx1-ubyte", MNIST_TEST_LEN, test_labels);
+
+    normalize_set(train_ds, MNIST_TRAIN_LEN, 28, 28);
+    normalize_set(test_ds, MNIST_TEST_LEN, 28, 28);
 }
