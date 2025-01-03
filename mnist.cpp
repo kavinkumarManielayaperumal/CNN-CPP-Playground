@@ -2,53 +2,86 @@
 #include <fstream>
 #include <stdexcept>
 #include <vector>
+#include <iostream>
 
-std::vector<std::vector<uint8_t>> MNISTLoader::loadImages(const std::string& filePath) {
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("Unable to open file: " + filePath);
+// Constructor
+MNISTLoader::MNISTLoader(const std::string& images_path, const std::string& labels_path)
+    : imagesPath(images_path), labelsPath(labels_path) {}
+
+// Load the dataset
+void MNISTLoader::loadDataset() {
+    loadImages();
+    loadLabels();
+}
+
+// Load images from the IDX file
+void MNISTLoader::loadImages() {
+    std::ifstream file(imagesPath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open images file: " + imagesPath);
     }
 
-    // Read metadata
-    int32_t magicNumber, numImages, numRows, numCols;
-    file.read(reinterpret_cast<char*>(&magicNumber), 4);
-    file.read(reinterpret_cast<char*>(&numImages), 4);
-    file.read(reinterpret_cast<char*>(&numRows), 4);
-    file.read(reinterpret_cast<char*>(&numCols), 4);
+    int32_t magic, num_images, rows, cols;
+    file.read(reinterpret_cast<char*>(&magic), 4);
+    file.read(reinterpret_cast<char*>(&num_images), 4);
+    file.read(reinterpret_cast<char*>(&rows), 4);
+    file.read(reinterpret_cast<char*>(&cols), 4);
 
-    // Convert from big-endian
-    magicNumber = __builtin_bswap32(magicNumber);
-    numImages = __builtin_bswap32(numImages);
-    numRows = __builtin_bswap32(numRows);
-    numCols = __builtin_bswap32(numCols);
+    magic = __builtin_bswap32(magic);
+    num_images = __builtin_bswap32(num_images);
+    rows = __builtin_bswap32(rows);
+    cols = __builtin_bswap32(cols);
 
-    // Load image data
-    std::vector<std::vector<uint8_t>> images(numImages, std::vector<uint8_t>(numRows * numCols));
-    for (int i = 0; i < numImages; ++i) {
-        file.read(reinterpret_cast<char*>(images[i].data()), numRows * numCols);
+    if (magic != 2051) {
+        throw std::runtime_error("Invalid magic number for images file");
     }
 
+    images = Tensor({num_images, rows, cols});
+    for (int i = 0; i < num_images; ++i) {
+        for (int r = 0; r < rows; ++r) {
+            for (int c = 0; c < cols; ++c) {
+                unsigned char pixel = 0;
+                file.read(reinterpret_cast<char*>(&pixel), 1);
+                images.at(i, r, c) = static_cast<float>(pixel) / 255.0f; // Normalize
+            }
+        }
+    }
+    file.close();
+}
+
+// Load labels from the IDX file
+void MNISTLoader::loadLabels() {
+    std::ifstream file(labelsPath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open labels file: " + labelsPath);
+    }
+
+    int32_t magic, num_labels;
+    file.read(reinterpret_cast<char*>(&magic), 4);
+    file.read(reinterpret_cast<char*>(&num_labels), 4);
+
+    magic = __builtin_bswap32(magic);
+    num_labels = __builtin_bswap32(num_labels);
+
+    if (magic != 2049) {
+        throw std::runtime_error("Invalid magic number for labels file");
+    }
+
+    labels = Tensor({num_labels});
+    for (int i = 0; i < num_labels; ++i) {
+        unsigned char label = 0;
+        file.read(reinterpret_cast<char*>(&label), 1);
+        labels.at(i) = static_cast<float>(label);
+    }
+    file.close();
+}
+
+// Get images
+Tensor MNISTLoader::getImages() const {
     return images;
 }
 
-std::vector<uint8_t> MNISTLoader::loadLabels(const std::string& filePath) {
-    std::ifstream file(filePath, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("Unable to open file: " + filePath);
-    }
-
-    // Read metadata
-    int32_t magicNumber, numLabels;
-    file.read(reinterpret_cast<char*>(&magicNumber), 4);
-    file.read(reinterpret_cast<char*>(&numLabels), 4);
-
-    // Convert from big-endian
-    magicNumber = __builtin_bswap32(magicNumber);
-    numLabels = __builtin_bswap32(numLabels);
-
-    // Load label data
-    std::vector<uint8_t> labels(numLabels);
-    file.read(reinterpret_cast<char*>(labels.data()), numLabels);
-
+// Get labels
+Tensor MNISTLoader::getLabels() const {
     return labels;
 }
